@@ -223,3 +223,68 @@ scikit-learn : 1.7.2
 
 
 Pour reproduire les resultats, executer les cellules de [code.ipynb](./code.ipynb) dans lordre depuis le dossier contenant mouse.txt, utils.py et code.ipynb.
+
+
+## 7. Detection de nouveautes avec LOF
+
+### 7.1 Separation apprentissage/test
+
+Pour simuler un systeme de detection de nouveautes, les 490 observations normales sont separees aleatoirement avec `random_state=42` :
+
+- 392 observations normales pour l apprentissage ;
+- 98 observations normales reservees au test ;
+- les 10 anomalies de reference sont toutes reservees au test.
+
+Le modele LOF est ajuste uniquement sur les 392 observations normales. Le test contient donc 108 points.
+
+```text
+Apprentissage : 392 normaux
+Test : 98 normaux + 10 anomalies
+```
+
+La selection des normaux utilise `y_reference` pour construire ce protocole. Les labels ne sont ensuite pas utilises pour ajuster LOF ni pour calculer le seuil. Ils servent uniquement a evaluer les predictions sur le test.
+
+### 7.2 Resultats sur les nouveautes
+
+Le seuil IQR est calcule uniquement avec les scores des 392 observations normales d apprentissage.
+
+| Regle | Nombre detecte | Matrice de confusion | F1 anomalie |
+|---|---:|---|---:|
+| IQR appris sur normaux | 13 | `[[95, 3], [0, 10]]` | 0.8696 |
+| LOF seuil par defaut | 11 | `[[97, 1], [0, 10]]` | 0.9524 |
+
+Le seuil IQR detecte les 10 anomalies, mais signale 3 normaux comme anomalies. Le seuil par defaut detecte aussi les 10 anomalies et ne produit qu un seul faux positif.
+
+### 7.3 Faut-il ajouter des lignes dans Mouse ?
+
+Non. Il ne faut pas ajouter de nouvelles lignes dans `mouse.txt`.
+
+La detection de nouveautes ne signifie pas que l on doit modifier la base de donnees. Elle signifie que l on divise les observations existantes en deux ensembles :
+
+```text
+donnees normales connues -> apprentissage du modele
+nouvelles observations -> test et prediction
+```
+
+Dans ce TP, les observations reservees au test jouent le role de nouvelles observations. Elles sont deja presentes dans `mouse.txt`, mais elles ne sont pas montrees au modele pendant son apprentissage. Cette separation est faite uniquement pour simuler le fonctionnement futur du systeme.
+
+Dans une application reelle, les nouvelles lignes arriveraient plus tard, apres l entrainement du modele. Le modele conserverait son apprentissage normal et appliquerait simplement :
+
+```python
+predictions = model.predict(X_new)
+scores = -model.score_samples(X_new)
+```
+
+Les donnees `X_new` ne seraient pas utilisees pour reajuster le modele avant la prediction.
+
+### 7.4 Difference entre outliers et nouveautes
+
+La detection d outliers analyse un ensemble qui contient potentiellement des normaux et des anomalies. Le modele utilise la structure globale et locale de cet ensemble pour trouver les observations atypiques.
+
+La detection de nouveautes suppose que l apprentissage contient uniquement des observations normales. Le modele apprend une description du comportement normal, puis score des observations nouvelles sans les integrer a l apprentissage.
+
+La construction de l apprentissage normal avec les labels apporte une information supplementaire : nous savons quels points sont normaux. Le protocole est donc semi-supervise dans sa preparation, meme si LOF reste non supervise pendant son ajustement. Cette information n etait pas disponible dans la detection d outliers de la partie precedente.
+
+### 7.5 Limites
+
+Il n y a que 10 anomalies. Une seule erreur modifie fortement le F1, car le nombre de vrais positifs est faible. Les performances peuvent aussi varier selon la separation aleatoire des observations normales et selon le choix du nombre de voisins. Ces resultats decrivent cet echantillon Mouse et ne garantissent pas les performances sur de futures donnees.

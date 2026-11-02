@@ -140,3 +140,61 @@ def ranking_metrics(
         "average_precision": float(average_precision_score(y_reference, scores)),
         "roc_auc": float(roc_auc_score(y_reference, scores)),
     }
+
+
+def split_novelty_data(
+    X: np.ndarray,
+    y_reference: np.ndarray,
+    normal_train_fraction: float = 0.8,
+    random_state: int = 42,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Reserve une partie des normaux pour le test et toutes les anomalies."""
+    if X.ndim != 2 or len(X) != len(y_reference):
+        raise ValueError("X et y_reference doivent avoir le meme nombre de lignes.")
+    if not 0 < normal_train_fraction < 1:
+        raise ValueError("normal_train_fraction doit etre compris entre 0 et 1.")
+
+    normal_indices = np.flatnonzero(y_reference == 0)
+    anomaly_indices = np.flatnonzero(y_reference == 1)
+    rng = np.random.default_rng(random_state)
+    shuffled_normals = rng.permutation(normal_indices)
+    n_train = int(normal_train_fraction * len(normal_indices))
+    train_indices = np.sort(shuffled_normals[:n_train])
+    test_indices = np.sort(
+        np.concatenate([shuffled_normals[n_train:], anomaly_indices])
+    )
+    return (
+        X[train_indices],
+        X[test_indices],
+        y_reference[test_indices],
+        train_indices,
+        test_indices,
+    )
+
+
+def fit_lof_novelty_train_test(
+    X_train: np.ndarray,
+    X_test: np.ndarray,
+    n_neighbors: int = 20,
+    iqr_multiplier: float = 1.5,
+) -> dict[str, object]:
+    """Ajuste LOF sur des normaux et score uniquement un ensemble reserve."""
+    model = LocalOutlierFactor(
+        n_neighbors=n_neighbors,
+        contamination="auto",
+        novelty=True,
+    )
+    model.fit(X_train)
+    train_scores = -model.score_samples(X_train)
+    test_scores = -model.score_samples(X_test)
+    threshold = iqr_upper_threshold(train_scores, multiplier=iqr_multiplier)
+    iqr_labels = labels_from_score_threshold(test_scores, threshold)
+    default_labels = model.predict(X_test)
+    return {
+        "model": model,
+        "train_scores": train_scores,
+        "test_scores": test_scores,
+        "threshold": threshold,
+        "iqr_labels": iqr_labels,
+        "default_labels": default_labels,
+    }
